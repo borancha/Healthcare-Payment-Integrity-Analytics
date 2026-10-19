@@ -1,0 +1,44 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local virtual/Conda environments
+conda_env/
+.venv/
+venv/
+env/
+
+# Jupyter temporary files
+.ipynb_checkpoints/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Raw and processed datasets
+data/Raw/
+data/processed/
+data/analytics/
+
+# Model artifacts and local dashboard exports
+models/
+dashboard/exports/
+
+# Test and coverage outputs
+.coverage
+htmlcov/
+
+# Streamlit local configuration
+.streamlit/secrets.toml

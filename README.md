@@ -97,6 +97,18 @@ python -m unittest tests.test_score_provider_payments -v
 
 The project includes unit tests for classification rules and documentation of scoring methodology and evaluation procedures. Validation of scoring logic does not establish the real-world accuracy of improper-payment detection.
 
+### Reproducibility Validation
+
+The scoring pipeline was independently rerun against a held-out provider-service dataset containing **1,946,987 records**.
+
+- **Original records:** 1,946,987
+- **Reproduced records:** 1,946,987
+- **Rows present only in the original output:** 0
+- **Rows present only in the reproduced output:** 0
+- **Result:** PASS — exact output match.
+
+The comparison was performed using `compare_scoring_outputs.py`, which checks both outputs in both directions, including duplicate rows. The result demonstrates reproducibility for the tested input and benchmark artifacts. It does not establish the real-world accuracy of payment-outlier detection or confirm fraud.
+
 ## Dashboard Preview
 
 The interactive dashboard helps reviewers explore provider payment patterns, filter potential outliers, inspect provider-level details, and export review worklists.

@@ -47,22 +47,44 @@ The source contains aggregated provider/service records, not individual adjudica
 
 ## Run Locally
 
-Create an appropriate Python environment and install the required dependencies for the scoring pipeline and dashboard.
+### 1. Clone the repository
 
-Run the dashboard from the project root:
+```bash
+git clone https://github.com/borancha/healthcare-payment-integrity-analytics.git
+cd healthcare-payment-integrity-analytics
+```
+
+### 2. Install dependencies
+
+Make sure Python and pip are installed, then run:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+### 3. Prepare the local data
+
+The raw CMS dataset, processed datasets, and generated analytics files are excluded from this repository because of their size. Download the 2024 data from the official [CMS dataset page](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners).
+
+The dashboard depends on locally generated evaluation and benchmark files. Downloading the raw dataset alone may not be sufficient; the required files must be prepared in the expected locations before launching the dashboard.
+
+### 4. Launch the dashboard
+
+From the project root, run:
 
 ```bash
 python -m streamlit run dashboard/app.py
 ```
 
-The dashboard requires the evaluation dataset and reference benchmark files to exist at their expected local paths. Large datasets and model artifacts are not included in this repository.
+### 5. Run the unit tests
 
-Run the unit tests from the project root:
+From the project root, run:
 
 ```bash
 python -m unittest tests.test_score_provider_payments -v
 ```
 
+**Note:** The GitHub repository contains the code and documentation, not the large local datasets or generated analytics artifacts. The dashboard may not launch successfully until those files have been prepared.
 ## Interpretation and Limitations
 
 - Average Medicare payment is not total paid amount.

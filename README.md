@@ -74,3 +74,9 @@ python -m unittest tests.test_score_provider_payments -v
 ## Validation
 
 The project includes unit tests for classification rules and documentation of scoring methodology and evaluation procedures. Validation of scoring logic does not establish the real-world accuracy of improper-payment detection.
+
+## Dashboard Preview
+
+The interactive dashboard helps reviewers explore provider payment patterns, filter potential outliers, inspect provider-level details, and export review worklists.
+
+![Healthcare Payment Integrity Dashboard](documentation/images/dashboard_overview.png)

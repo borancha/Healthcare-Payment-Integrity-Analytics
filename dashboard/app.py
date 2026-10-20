@@ -17,8 +17,8 @@ DATA_FILE = (
     PROJECT_ROOT
     / "data"
     / "analytics"
-    / "evaluation"
-    / "independent_evaluation_scores_2024.parquet"
+    / "rebuild_v1"
+    / "evaluation_scored_2024.parquet"
 )
 
 st.title("Healthcare Payment Integrity & Provider Anomaly Analytics")
@@ -26,6 +26,50 @@ st.caption(
     "2024 Medicare provider/service data | Independent peer benchmarks | "
     "Analytical review support, not a fraud determination"
 )
+
+st.subheader("2024 Evaluation Overview")
+
+overview_sql = f"""
+SELECT
+    COUNT(*) AS total_records,
+    COUNT(DISTINCT Rndrng_NPI) AS distinct_providers,
+    COUNT(*) FILTER (
+        WHERE independent_payment_status = 'within_range'
+    ) AS within_range,
+    COUNT(*) FILTER (
+        WHERE independent_payment_status = 'low_payment_outlier'
+    ) AS low_outliers,
+    COUNT(*) FILTER (
+        WHERE independent_payment_status = 'high_payment_outlier'
+    ) AS high_outliers,
+    COUNT(*) FILTER (
+        WHERE independent_payment_status =
+            'not_scored_no_reference_benchmark'
+    ) AS no_benchmark
+FROM read_parquet('{DATA_FILE.as_posix()}')
+"""
+
+overview = duckdb.connect().execute(overview_sql).fetchdf().iloc[0]
+
+o1, o2, o3 = st.columns(3)
+o1.metric("Evaluation records", f"{int(overview['total_records']):,}")
+o2.metric("Distinct providers", f"{int(overview['distinct_providers']):,}")
+o3.metric(
+    "Within peer range",
+    f"{int(overview['within_range']):,}",
+    f"{overview['within_range'] / overview['total_records']:.2%} of records"
+)
+
+o4, o5, o6 = st.columns(3)
+o4.metric("High-payment candidates", f"{int(overview['high_outliers']):,}")
+o5.metric("Low-payment candidates", f"{int(overview['low_outliers']):,}")
+o6.metric("No reference benchmark", f"{int(overview['no_benchmark']):,}")
+
+st.caption(
+    "Overview figures cover the full evaluation dataset and do not change "
+    "with sidebar filters. Outliers are review candidates, not confirmed fraud."
+)
+st.divider()
 
 if not DATA_FILE.exists():
     st.error(f"Evaluation data file not found: {DATA_FILE}")
@@ -72,11 +116,16 @@ def get_filter_values(file_path):
 states, provider_types, places = get_filter_values(str(DATA_FILE))
 
 st.sidebar.header("Review filters")
+
 selected_statuses = st.sidebar.multiselect(
     "Payment status",
-    ["high_payment_outlier", "low_payment_outlier", "within_range",
-     "not_scored_insufficient_reference_peers"],
-    default=["high_payment_outlier", "low_payment_outlier"]
+    [
+        "high_payment_outlier",
+        "low_payment_outlier",
+        "within_range",
+        "not_scored_no_reference_benchmark",
+    ],
+    default=["high_payment_outlier", "low_payment_outlier"],
 )
 selected_states = st.sidebar.multiselect("Provider state", states)
 selected_types = st.sidebar.multiselect("Provider type", provider_types)
@@ -89,7 +138,12 @@ min_peers = st.sidebar.number_input(
     step=10
 )
 
-conditions = ["reference_peer_count >= ?"]
+conditions = [
+    "("
+    "independent_payment_status = 'not_scored_no_reference_benchmark' "
+    "OR reference_peer_count >= ?"
+    ")"
+]
 params = [int(min_peers)]
 
 if selected_statuses:

@@ -203,3 +203,101 @@ The metric-level results are stored in:
 
 CMS provider/service records contain aggregate payment and utilization information, not individual claim adjudication records. A statistical payment outlier is a candidate for further review, not evidence of fraud, provider misconduct, or confirmed improper payment.
 
+
+## Reproducible Benchmark Rebuild and Held-Out Evaluation
+
+### Purpose
+
+A separate reproducible benchmark pipeline was added to create a new reference benchmark artifact and evaluate payment-pattern screening on providers excluded from the reference population. This rebuild is separate from the original benchmark-generation process and does not claim to reproduce the original benchmark artifact.
+
+### Source and provider-level split
+
+The pipeline uses the CMS Medicare Physician & Other Practitioners 2024 provider-service dataset.
+
+Providers are assigned deterministically using the MD5 hash of the string representation of `Rndrng_NPI`:
+
+- Hashes whose first hexadecimal character is `0`, `1`, `2`, or `3` are assigned to the evaluation split.
+- All other first hexadecimal characters are assigned to the reference split.
+- Every record for a given provider inherits that provider's assignment.
+
+The resulting split contains:
+
+| Metric | Result |
+|---|---:|
+| Distinct providers | 1,207,473 |
+| Reference providers | 906,084 |
+| Evaluation providers | 301,389 |
+| Duplicate provider assignments | 0 |
+| Invalid split labels | 0 |
+
+This is a deterministic provider-level split within the 2024 dataset. It is not a temporal holdout using a later year.
+
+### Reference benchmark construction
+
+Peer groups use these keys:
+
+- `Rndrng_Prvdr_Type`
+- `HCPCS_Cd`
+- `Place_Of_Srvc`
+
+For each reference peer group, the pipeline calculates the continuous 25th, 50th, and 75th percentiles of `Avg_Mdcr_Pymt_Amt` using DuckDB's `quantile_cont`. Groups with fewer than 30 non-null payment records are excluded.
+
+The new benchmark artifact contains 10,884 peer groups. Validation found:
+
+- Minimum peer count: 30
+- Groups below the minimum: 0
+- Invalid quartile sequences: 0
+- Groups with missing quartiles: 0
+
+### Held-out evaluation
+
+The evaluation dataset contains records from evaluation-assigned providers only. It was scored against the newly generated reference benchmarks using `src/score_provider_payments.py` and the documented 1.5-IQR classification rule.
+
+| Classification | Records | Percentage of all evaluation records |
+|---|---:|---:|
+| Within range | 2,265,116 | 92.45% |
+| Low payment outlier | 83,631 | 3.41% |
+| High payment outlier | 29,075 | 1.19% |
+| No reference benchmark | 72,379 | 2.95% |
+| Missing payment | 0 | 0.00% |
+| **Total** | **2,450,201** | **100.00%** |
+
+The two outlier classifications total 112,706 records (approximately 4.60%). They are statistical review candidates, not confirmed fraud, improper payments, or recoverable savings.
+
+### Evaluation validation
+
+The scored output was checked for record counts, provider counts, missing statuses, and payment bounds. The new benchmark was checked for minimum peer counts and quartile ordering.
+
+Results:
+
+- Scored records: 2,450,201
+- Distinct evaluation providers: 301,389
+- Missing statuses: 0
+- Outliers missing lower or upper bounds: 0
+- Status counts reconcile to the total: yes
+- Duplicate provider assignments: 0
+
+These checks establish structural consistency and deterministic reproducibility of the documented process. They do not establish the accuracy of the flags or their ability to identify confirmed improper payments.
+
+### Reproduction commands
+
+Run from the project root in the configured Python environment:
+
+```bash
+python src/build_reference_benchmarks.py
+python src/create_evaluation_dataset.py
+python src/score_provider_payments.py --input data/analytics/rebuild_v1/evaluation_input_2024.parquet --benchmarks data/analytics/rebuild_v1/reference_payment_benchmarks_2024.parquet --output data/analytics/rebuild_v1/evaluation_scored_2024.parquet
+python src/summarize_evaluation.py
+```
+
+The scripts refuse to overwrite their default output artifacts when those files already exist. To rerun the pipeline from scratch, use a new output directory and update the relevant script arguments accordingly.
+
+### Limitations
+
+- The CMS data represents aggregated provider-service observations, not individual adjudicated claim transactions.
+- Average Medicare payment is not total payment.
+- Peer-relative statistical outliers can reflect legitimate differences in service mix, geography, patient complexity, or other factors.
+- No confirmed fraud or improper-payment labels were available for this evaluation.
+- The evaluation is provider-level within a single year, not a future-year validation.
+- This benchmark rebuild is distinct from the original benchmark artifact. It must not be described as an exact reconstruction of the original benchmark or its original split.
+

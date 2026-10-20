@@ -109,6 +109,59 @@ The scoring pipeline was independently rerun against a held-out provider-service
 
 The comparison was performed using `compare_scoring_outputs.py`, which checks both outputs in both directions, including duplicate rows. The result demonstrates reproducibility for the tested input and benchmark artifacts. It does not establish the real-world accuracy of payment-outlier detection or confirm fraud.
 
+## Reproducible Benchmark Rebuild and Held-Out Evaluation
+
+A separate, reproducible evaluation pipeline was built to address the missing benchmark-generation script in the original project artifacts. This rebuild uses a deterministic provider-level split and is documented separately from the original scoring results.
+
+### Rebuild Design
+
+- **Source:** CMS Medicare Physician & Other Practitioners, 2024.
+- **Split strategy:** Deterministic MD5-based assignment by provider NPI, keeping each provider entirely within either the reference or evaluation partition.
+- **Reference partition:** 906,084 providers.
+- **Evaluation partition:** 301,389 providers.
+- **Peer groups:** Provider specialty/type, HCPCS code, and place of service.
+- **Benchmark method:** 25th, 50th, and 75th percentiles, with a minimum of 30 reference peer records per group.
+- **Reference benchmark groups generated:** 10,884.
+
+### Held-Out Evaluation Results
+
+| Metric | Result |
+|---|---:|
+| Evaluation records | 2,450,201 |
+| Distinct evaluation providers | 301,389 |
+| Within-range records | 2,265,116 (92.45%) |
+| Low-payment outlier candidates | 83,631 (3.41%) |
+| High-payment outlier candidates | 29,075 (1.19%) |
+| Records without a reference benchmark | 72,379 (2.95%) |
+| Records with missing payment status | 0 |
+
+### Validation Checks
+
+- Each provider was assigned to exactly one partition.
+- All 10,884 benchmark groups met the minimum peer-record threshold.
+- No benchmark groups had invalid quartiles or missing quartiles.
+- All evaluation records received a status.
+- No flagged outlier records were missing their benchmark bounds.
+- Evaluation status counts reconciled to the total record count.
+
+### Reproduce the Pipeline
+
+Run the following commands from the project root after preparing the processed CMS dataset:
+
+```bash
+python src/build_reference_benchmarks.py
+python src/create_evaluation_dataset.py
+python src/score_provider_payments.py --input data/analytics/rebuild_v1/evaluation_input_2024.parquet --benchmarks data/analytics/rebuild_v1/reference_payment_benchmarks_2024.parquet --output data/analytics/rebuild_v1/evaluation_scored_2024.parquet
+python src/summarize_evaluation.py
+```
+
+The pipeline writes its rebuild artifacts to `data/analytics/rebuild_v1/`. Generated data artifacts are excluded from Git, so users must run the pipeline locally to reproduce them.
+
+**Interpretation:** Payment outliers are statistical screening signals for further review—not confirmed fraud, improper payments, or recoverable savings. The source contains aggregated provider/service-level data rather than individual adjudicated claims. This provider-level split evaluates separation between reference and evaluation providers within the 2024 dataset; it is not a future-year temporal validation.
+
+The rebuilt benchmark pipeline is a distinct evaluation workflow. Its results should not be interpreted as an exact reconstruction of the original benchmark artifact.
+
+
 ## Dashboard Preview
 
 The interactive dashboard helps reviewers explore provider payment patterns, filter potential outliers, inspect provider-level details, and export review worklists.

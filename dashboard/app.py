@@ -312,7 +312,14 @@ prioritized AS (
             WHEN reference_peers < 50 THEN 'Limited (30–49)'
             WHEN reference_peers < 200 THEN 'Moderate (50–199)'
             ELSE 'Larger (200+)'
-        END AS peer_support
+        END AS peer_support,
+        CASE
+            WHEN payment_status = 'high_payment_outlier'
+                THEN 'Payment exceeds upper peer IQR bound'
+            WHEN payment_status = 'low_payment_outlier'
+                THEN 'Payment falls below lower peer IQR bound'
+            ELSE 'No payment outlier identified'
+        END AS review_reason
     FROM distances
 )
 SELECT *
@@ -358,6 +365,7 @@ else:
             "procedure_code",
             "procedure_description",
             "payment_status",
+            "review_reason",
             "avg_medicare_payment",
             "peer_median",
             "upper_review_bound",

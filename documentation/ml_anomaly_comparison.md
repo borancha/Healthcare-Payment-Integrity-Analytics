@@ -189,3 +189,39 @@ python src/compare_ml_anomaly_methods.py --feature-set no-peer-payment --if-trai
 ```
 
 The script intentionally refuses to overwrite existing experiment outputs. Use a new output directory for any rerun.
+
+## 14. Random-Seed Stability Analysis
+
+### Objective
+
+Evaluate whether anomaly scores and binary flags change when the Isolation Forest random seed changes while keeping the evaluation records, training records, feature set, contamination threshold, and sample sizes fixed.
+
+### Experimental configuration
+
+- Feature set: full eight-feature configuration.
+- Isolation Forest training sample: 50,000 records.
+- LOF training sample: 10,000 records.
+- Evaluation sample: 20,000 records.
+- Contamination: 0.05.
+- Seeds compared: 42 and 123.
+- Evaluation records matched using provider ID, HCPCS code, and place of service.
+
+### Results
+
+| Metric | Isolation Forest | Local Outlier Factor |
+|---|---:|---:|
+| Flags changed between seeds | 237 | 0 |
+| Flag changes as percentage of evaluation records | 1.185% | 0.00% |
+| Score correlation between runs | 0.9833 | 1.0000 |
+
+For Isolation Forest, 116 records were flagged only under seed 42 and 121 only under seed 123. Both runs evaluated the same 20,000 records. The IQR baseline was unchanged.
+
+### Interpretation
+
+Isolation Forest scores were highly correlated across seeds, although 237 records changed binary flag status. This indicates that overall score ordering was broadly similar while some observations near the decision threshold were sensitive to random initialization.
+
+LOF produced identical scores and flags because its training data, evaluation data, preprocessing, and model configuration were unchanged. This is a reproducibility check under fixed data, not evidence of generalization to other samples.
+
+### Limitations
+
+Only two random seeds were tested. The experiment does not evaluate variation caused by different training samples, evaluation periods, or feature distributions. Correlation does not measure fraud-detection accuracy, and there are no confirmed fraud labels in this dataset. All anomaly flags remain screening signals for human review.

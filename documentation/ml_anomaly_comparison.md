@@ -141,3 +141,51 @@ python src/compare_ml_anomaly_methods.py --if-train-rows 50000 --lof-train-rows 
 ## 12. Intended Use
 
 This comparison demonstrates a workflow for comparing unsupervised anomaly-detection methods with a transparent statistical baseline. It supports further analysis and human review; it does not automate payment denials or establish fraud.
+
+
+## 13. Feature Ablation and Matched-Record Comparison
+
+### Objective
+
+Compare the full eight-feature model against an ablation model that excludes `payment_to_peer_median` and `payment_iqr_distance`. The remaining six features include `log_peer_count`.
+
+Both experiments use the same deterministic evaluation sample of 20,000 rows, with 50,000 Isolation Forest training rows, 10,000 Local Outlier Factor training rows, contamination set to 0.05, and random seed 42.
+
+### Results
+
+| Metric | Full features | Without peer-payment features |
+|---|---:|---:|
+| Isolation Forest flagged | 1,532 (7.66%) | 1,085 (5.43%) |
+| Local Outlier Factor flagged | 1,501 (7.51%) | 1,537 (7.69%) |
+| IQR baseline flagged | 929 (4.65%) | 929 (4.65%) |
+| IF/LOF overlap | 796 | 332 |
+| IF/LOF Jaccard similarity | 35.58% | 14.50% |
+
+### Matched-record stability
+
+The two model configurations were compared using the same 20,000 evaluation records, matched by provider ID, HCPCS code, and place of service. All records matched.
+
+- **Isolation Forest:** 1,009 records (5.05%) changed flag status; 728 were flagged only by the full-feature model, and 281 only by the ablation model.
+- **Local Outlier Factor:** 970 records (4.85%) changed flag status; 467 were flagged only by the full-feature model, and 503 only by the ablation model.
+
+### Interpretation and limitations
+
+Removing peer-payment features materially changed anomaly flags and reduced agreement between Isolation Forest and Local Outlier Factor. This demonstrates that model results are sensitive to feature selection.
+
+These experiments do not establish fraud-detection accuracy. The CMS dataset contains aggregated provider-service records, not individual claims, and there are no confirmed fraud labels. Flags are screening signals for further review, not evidence of fraud, improper payment, or recoverable savings.
+
+### Reproducibility
+
+Full-feature experiment:
+
+```bash
+python src/compare_ml_anomaly_methods.py --feature-set full --if-train-rows 50000 --lof-train-rows 10000 --evaluation-rows 20000 --output-dir data/analytics/ml_comparison_matched_v2
+```
+
+Ablation experiment:
+
+```bash
+python src/compare_ml_anomaly_methods.py --feature-set no-peer-payment --if-train-rows 50000 --lof-train-rows 10000 --evaluation-rows 20000 --output-dir data/analytics/ml_ablation_matched_v2
+```
+
+The script intentionally refuses to overwrite existing experiment outputs. Use a new output directory for any rerun.

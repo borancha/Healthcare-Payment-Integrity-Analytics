@@ -71,6 +71,12 @@ def parse_args():
     parser.add_argument("--evaluation-rows", type=int, default=20000)
     parser.add_argument("--contamination", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--feature-set",
+        choices=("full", "no-peer-payment"),
+        default="full",
+        help="Exclude peer-median and IQR-distance features for ablation.",
+    )
     return parser.parse_args()
 
 
@@ -159,6 +165,8 @@ def load_evaluation_sample(con, args):
         SELECT
             {feature_sql("e")},
             e.Rndrng_NPI AS provider_id,
+            e.HCPCS_Cd AS hcpcs_code,
+            e.Place_Of_Srvc AS place_of_service,
             e.independent_payment_status
         FROM read_parquet('{path}') e
         WHERE e.Avg_Mdcr_Pymt_Amt IS NOT NULL
@@ -177,8 +185,8 @@ def load_evaluation_sample(con, args):
     return con.execute(query).df()
 
 
-def prepare_matrix(frame, medians=None):
-    matrix = frame[FEATURES].replace([np.inf, -np.inf], np.nan)
+def prepare_matrix(frame, medians=None, features=FEATURES):
+    matrix = frame[features].replace([np.inf, -np.inf], np.nan)
     if medians is None:
         medians = matrix.median().fillna(0)
     matrix = matrix.fillna(medians).fillna(0)
@@ -187,6 +195,17 @@ def prepare_matrix(frame, medians=None):
 
 def main():
     args = parse_args()
+    features = (
+        FEATURES
+        if args.feature_set == "full"
+        else [
+            feature for feature in FEATURES
+            if feature not in {
+                "payment_to_peer_median",
+                "payment_iqr_distance",
+            }
+        ]
+    )
 
     paths = [args.source, args.splits, args.evaluation, args.benchmarks]
     for path in paths:
@@ -240,8 +259,8 @@ def main():
         if_train = reference.iloc[:args.if_train_rows].copy()
         lof_train = if_train.iloc[:args.lof_train_rows].copy()
 
-        X_if_train_raw, feature_medians = prepare_matrix(if_train)
-        X_eval_raw, _ = prepare_matrix(evaluation, feature_medians)
+        X_if_train_raw, feature_medians = prepare_matrix(if_train, features=features)
+        X_eval_raw, _ = prepare_matrix(evaluation, feature_medians, features=features)
         scaler_if = StandardScaler()
         X_if_train = scaler_if.fit_transform(X_if_train_raw)
         X_eval_if = scaler_if.transform(X_eval_raw)
@@ -259,7 +278,7 @@ def main():
 
         # LOF has a separate, smaller training sample and its own scaler.
         print("Training Local Outlier Factor (bounded sample)...")
-        X_lof_train_raw, _ = prepare_matrix(lof_train, feature_medians)
+        X_lof_train_raw, _ = prepare_matrix(lof_train, feature_medians, features=features)
         scaler_lof = StandardScaler()
         X_lof_train = scaler_lof.fit_transform(X_lof_train_raw)
         X_eval_lof = scaler_lof.transform(X_eval_raw)
@@ -275,7 +294,12 @@ def main():
         lof_flags = lof_model.predict(X_eval_lof) == -1
 
         output = evaluation[
-            ["provider_id", "independent_payment_status"]
+            [
+                "provider_id",
+                "hcpcs_code",
+                "place_of_service",
+                "independent_payment_status",
+            ]
         ].copy()
         output["isolation_forest_anomaly_score"] = if_scores
         output["isolation_forest_flag"] = if_flags
@@ -314,7 +338,7 @@ def main():
             "evaluation_distinct_providers": int(
                 evaluation["provider_id"].nunique()
             ),
-            "features": FEATURES,
+            "features": features,
             "methods": {
                 "isolation_forest": comparison(iflag),
                 "local_outlier_factor": comparison(lflag),

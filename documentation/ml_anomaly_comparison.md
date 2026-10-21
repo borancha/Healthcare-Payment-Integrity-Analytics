@@ -225,3 +225,68 @@ LOF produced identical scores and flags because its training data, evaluation da
 ### Limitations
 
 Only two random seeds were tested. The experiment does not evaluate variation caused by different training samples, evaluation periods, or feature distributions. Correlation does not measure fraud-detection accuracy, and there are no confirmed fraud labels in this dataset. All anomaly flags remain screening signals for human review.
+
+## 15. Training-Sample Stability Analysis
+
+### Objective
+
+Evaluate how changing the reference training sample affects Isolation Forest and Local Outlier Factor (LOF) anomaly flags while holding the evaluation records and model configuration constant.
+
+### Experimental design
+
+| Parameter | Configuration |
+|---|---|
+| Feature set | Full 8-feature set |
+| Isolation Forest training sample | 50,000 rows |
+| LOF training sample | 10,000 rows |
+| Evaluation sample | 20,000 records |
+| Model seed | 42 for both runs |
+| Reference-sampling seeds | 42 and 123 |
+| Contamination threshold | 0.05 |
+| Evaluation matching key | Provider ID, HCPCS code, place of service |
+
+The reference-sampling seed changes the hash-based reference-record selection. The evaluation-sample selection remains unchanged. Both experiments use the same features, model settings, and evaluation records.
+
+### Results
+
+| Metric | Sampling seed 42 | Sampling seed 123 |
+|---|---:|---:|
+| Isolation Forest flags | 1,563 (7.815%) | 1,559 (7.795%) |
+| LOF flags | 1,560 (7.800%) | 1,616 (8.080%) |
+| IQR baseline flags | 929 (4.645%) | 929 (4.645%) |
+| Isolation Forest / LOF overlap | 779 | 813 |
+
+Record-level comparison on 20,000 matched evaluation records:
+
+| Stability metric | Isolation Forest | LOF |
+|---|---:|---:|
+| Flags that changed | 198 (0.99%) | 664 (3.32%) |
+| Anomaly-score correlation | 0.989780 | 0.999916 |
+
+For Isolation Forest, 101 records were flagged only with sampling seed 42 and 97 only with sampling seed 123.
+
+### Interpretation
+
+- Isolation Forest produced similar flag counts across the two reference samples, while LOF's flagged count varied more.
+- Isolation Forest showed 198 changed record-level flags; LOF showed 664.
+- High score correlation does not guarantee identical binary flags. Small score changes near a decision threshold can change classifications.
+- The IQR baseline remained unchanged because it does not depend on the ML training sample in this experiment.
+
+### Limitations
+
+- This is a two-sample stability experiment, not a comprehensive estimate of model robustness.
+- The evaluation covers a bounded sample of 20,000 provider-service records, not the full CMS population.
+- Correlation measures similarity in score variation, not correctness.
+- The dataset does not provide confirmed fraud labels. Anomaly flags are screening signals, not proof of fraud, improper payment, or recoverable savings.
+- LOF is sensitive to the local neighborhoods represented by its training data.
+
+### Reproducibility
+
+The experiment uses the following commands:
+
+```bash
+python src/compare_ml_anomaly_methods.py --feature-set full --seed 42 --reference-sample-seed 42 --if-train-rows 50000 --lof-train-rows 10000 --evaluation-rows 20000 --output-dir data/analytics/ml_training_sample_seed42_v2
+
+python src/compare_ml_anomaly_methods.py --feature-set full --seed 42 --reference-sample-seed 123 --if-train-rows 50000 --lof-train-rows 10000 --evaluation-rows 20000 --output-dir data/analytics/ml_training_sample_seed123_v2
+```
+Each run's summary JSON records the model seed and reference-sampling seed.

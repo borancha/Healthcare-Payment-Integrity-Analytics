@@ -71,6 +71,7 @@ def parse_args():
     parser.add_argument("--evaluation-rows", type=int, default=20000)
     parser.add_argument("--contamination", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--reference-sample-seed", type=int, default=42)
     parser.add_argument(
         "--feature-set",
         choices=("full", "no-peer-payment"),
@@ -145,12 +146,14 @@ def load_reference_sample(con, args):
         WHERE a.split = 'reference'
           AND s.Avg_Mdcr_Pymt_Amt IS NOT NULL
           AND s.Avg_Mdcr_Alowd_Amt IS NOT NULL
-          AND s.Tot_Benes IS NOT NULL
+                    AND s.Tot_Benes IS NOT NULL
           AND hash(
+              CAST({int(args.reference_sample_seed)} AS VARCHAR) || '|' ||
               CAST(s.Rndrng_NPI AS VARCHAR) || '|' ||
               s.HCPCS_Cd || '|' || s.Place_Of_Srvc
           ) % 100 = 0
         ORDER BY hash(
+            CAST({int(args.reference_sample_seed)} AS VARCHAR) || '|' ||
             CAST(s.Rndrng_NPI AS VARCHAR) || '|' ||
             s.HCPCS_Cd || '|' || s.Place_Of_Srvc
         )
@@ -329,8 +332,9 @@ def main():
 
         summary = {
             "created_utc": datetime.now(timezone.utc).isoformat(),
-            "experiment": "peer-relative unsupervised anomaly comparison",
+                        "experiment": "peer-relative unsupervised anomaly comparison",
             "seed": args.seed,
+            "reference_sample_seed": args.reference_sample_seed,
             "contamination_threshold": args.contamination,
             "reference_sample_rows": int(len(if_train)),
             "lof_training_rows": int(len(lof_train)),

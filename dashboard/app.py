@@ -395,6 +395,200 @@ st.warning(
 
 
 st.divider()
+st.divider()
+st.header("ML Anomaly Screening")
+st.caption(
+    "Exploratory results from a 20,000-record evaluation sample. "
+    "ML anomaly flags are screening signals, not confirmed fraud."
+)
+
+ML_SAMPLE_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "analytics"
+    / "ml_training_sample_seed42_v2"
+    / "ml_comparison_scores_sample.parquet"
+)
+PAYMENT_SCORES_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "analytics"
+    / "provider_payment_anomaly_scores_2024_v2.parquet"
+)
+
+if not ML_SAMPLE_FILE.exists() or not PAYMENT_SCORES_FILE.exists():
+    st.warning(
+        "ML screening data files were not found. "
+        "The existing payment review dashboard remains available."
+    )
+else:
+    ml_path = ML_SAMPLE_FILE.as_posix().replace("'", "''")
+    payment_path = PAYMENT_SCORES_FILE.as_posix().replace("'", "''")
+
+    ml_screening_sql = f"""
+    SELECT
+        m.provider_id AS provider_npi,
+        b.Rndrng_Prvdr_State_Abrvtn AS state,
+        b.Rndrng_Prvdr_Type AS provider_type,
+        m.hcpcs_code AS procedure_code,
+        b.HCPCS_Desc AS procedure_description,
+        m.place_of_service,
+        m.independent_payment_status AS payment_status,
+        ROUND(b.Avg_Mdcr_Pymt_Amt, 2) AS avg_medicare_payment,
+        ROUND(b.payment_p25, 2) AS peer_p25,
+        ROUND(b.payment_p75, 2) AS peer_p75,
+        ROUND(b.lower_payment_bound, 2) AS lower_review_bound,
+        ROUND(b.upper_payment_bound, 2) AS upper_review_bound,
+        b.benchmark_peer_count AS reference_peers,
+        m.isolation_forest_anomaly_score,
+        m.isolation_forest_flag,
+        m.lof_anomaly_score,
+        m.lof_flag,
+        m.iqr_outlier_flag,
+        CASE
+            WHEN m.isolation_forest_flag AND m.lof_flag
+                THEN 'Both ML methods'
+            WHEN m.isolation_forest_flag
+                THEN 'Isolation Forest only'
+            WHEN m.lof_flag
+                THEN 'LOF only'
+            ELSE 'Neither ML method'
+        END AS ml_method_agreement,
+        CASE
+            WHEN m.isolation_forest_flag AND m.lof_flag
+                THEN 'Review: both ML methods flagged'
+            WHEN m.isolation_forest_flag OR m.lof_flag
+                THEN 'Review: one ML method flagged'
+            ELSE 'No ML flag at configured threshold'
+        END AS ml_review_reason
+    FROM read_parquet('{ml_path}') m
+    INNER JOIN read_parquet('{payment_path}') b
+        ON m.provider_id = b.Rndrng_NPI
+       AND m.hcpcs_code = b.HCPCS_Cd
+       AND m.place_of_service = b.Place_Of_Srvc
+    """
+
+    ml_screening = con.execute(ml_screening_sql).fetchdf()
+
+    ml_filter = st.radio(
+        "ML review filter",
+        [
+            "Any ML result",
+            "Isolation Forest flagged",
+            "LOF flagged",
+            "Both ML methods flagged",
+            "IQR payment outlier",
+            "ML and IQR both flagged",
+        ],
+        horizontal=True,
+        key="ml_screening_filter",
+    )
+
+    if ml_filter == "Isolation Forest flagged":
+        ml_view = ml_screening[
+            ml_screening["isolation_forest_flag"]
+        ].copy()
+    elif ml_filter == "LOF flagged":
+        ml_view = ml_screening[ml_screening["lof_flag"]].copy()
+    elif ml_filter == "Both ML methods flagged":
+        ml_view = ml_screening[
+            ml_screening["isolation_forest_flag"]
+            & ml_screening["lof_flag"]
+        ].copy()
+    elif ml_filter == "IQR payment outlier":
+        ml_view = ml_screening[
+            ml_screening["iqr_outlier_flag"]
+        ].copy()
+    elif ml_filter == "ML and IQR both flagged":
+        ml_view = ml_screening[
+            (
+                ml_screening["isolation_forest_flag"]
+                | ml_screening["lof_flag"]
+            )
+            & ml_screening["iqr_outlier_flag"]
+        ].copy()
+    else:
+        ml_view = ml_screening.copy()
+
+    total_ml_rows = len(ml_screening)
+    iforest_count = int(ml_screening["isolation_forest_flag"].sum())
+    lof_count = int(ml_screening["lof_flag"].sum())
+    iqr_count = int(ml_screening["iqr_outlier_flag"].sum())
+    both_ml_count = int(
+        (
+            ml_screening["isolation_forest_flag"]
+            & ml_screening["lof_flag"]
+        ).sum()
+    )
+    ml_and_iqr_count = int(
+        (
+            (
+                ml_screening["isolation_forest_flag"]
+                | ml_screening["lof_flag"]
+            )
+            & ml_screening["iqr_outlier_flag"]
+        ).sum()
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Matched sample records", f"{total_ml_rows:,}")
+    c2.metric("Isolation Forest flagged", f"{iforest_count:,}")
+    c3.metric("LOF flagged", f"{lof_count:,}")
+
+    c4, c5, c6 = st.columns(3)
+    c4.metric("Both ML methods flagged", f"{both_ml_count:,}")
+    c5.metric("IQR payment outliers", f"{iqr_count:,}")
+    c6.metric("ML and IQR overlap", f"{ml_and_iqr_count:,}")
+
+    st.caption(
+        "An ML flag means a record was identified as unusual by that model. "
+        "An IQR flag means its payment falls outside the peer payment bounds. "
+        "The methods measure different signals."
+    )
+
+    display_columns = [
+        "provider_npi",
+        "state",
+        "provider_type",
+        "procedure_code",
+        "procedure_description",
+        "place_of_service",
+        "payment_status",
+        "avg_medicare_payment",
+        "lower_review_bound",
+        "upper_review_bound",
+        "reference_peers",
+        "isolation_forest_anomaly_score",
+        "isolation_forest_flag",
+        "lof_anomaly_score",
+        "lof_flag",
+        "iqr_outlier_flag",
+        "ml_method_agreement",
+        "ml_review_reason",
+    ]
+
+    st.caption(
+        f"Rows shown: {len(ml_view):,} of {total_ml_rows:,} sampled records."
+    )
+    st.dataframe(
+        ml_view[display_columns],
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.download_button(
+        "Download ML screening results as CSV",
+        data=ml_view[display_columns].to_csv(index=False).encode("utf-8"),
+        file_name="ml_anomaly_screening_sample.csv",
+        mime="text/csv",
+        key="download_ml_screening",
+    )
+
+    st.warning(
+        "This is a bounded sample, not full-population ML scoring. "
+        "Anomaly scores and flags do not establish fraud, improper payment, "
+        "or recoverable savings. Human review and supporting evidence are required."
+    )
 st.header("Provider-Level Payment Review")
 
 st.write(

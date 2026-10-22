@@ -21,6 +21,14 @@ DATA_FILE = (
     / "evaluation_scored_2024.parquet"
 )
 
+PAYMENT_REVIEW_ML_FILE = (
+    PROJECT_ROOT
+    / "data"
+    / "analytics"
+    / "payment_review_ml_v1"
+    / "payment_review_ml_scores.parquet"
+)
+
 st.title("Healthcare Payment Integrity & Provider Anomaly Analytics")
 st.caption(
     "2024 Medicare provider/service data | Independent peer benchmarks | "
@@ -820,32 +828,109 @@ if provider_npi_input:
 
             st.subheader("ML Investigation Details")
 
-            if "ml_screening" in globals():
-                provider_ml_df = ml_screening[
-                    ml_screening["provider_npi"].astype(str)
-                    == provider_npi_input
-                ].copy()
+            if PAYMENT_REVIEW_ML_FILE.exists():
+                full_ml_path = (
+                    PAYMENT_REVIEW_ML_FILE.as_posix().replace("'", "''")
+                )
+
+                provider_ml_sql = f"""
+                SELECT
+                    provider_id AS provider_npi,
+                    hcpcs_code AS procedure_code,
+                    procedure_description,
+                    place_of_service,
+                    independent_payment_status AS payment_status,
+                    avg_medicare_payment,
+                    reference_peer_count AS reference_peers,
+                    isolation_forest_anomaly_score,
+                    isolation_forest_flag,
+                    lof_anomaly_score,
+                    lof_flag,
+                    both_ml_methods_flagged,
+                    either_ml_method_flagged
+                FROM read_parquet('{full_ml_path}')
+                WHERE provider_id = ?
+                ORDER BY
+                    both_ml_methods_flagged DESC,
+                    either_ml_method_flagged DESC,
+                    avg_medicare_payment DESC
+                LIMIT 500
+                """
+
+                provider_ml_df = con.execute(
+                    provider_ml_sql, [int(provider_npi_input)]
+                ).fetchdf()
 
                 if provider_ml_df.empty:
                     st.info(
-                        "This provider has no matching records in the "
-                        "current 20,000-record ML screening sample. "
-                        "This does not mean the provider has no anomalies."
+                        "No high- or low-payment-outlier candidates for this "
+                        "provider were found in the full ML scoring file. "
+                        "This does not establish that all provider activity is normal."
                     )
                 else:
-                    ml1, ml2, ml3 = st.columns(3)
+                    provider_ml_df["ml_method_agreement"] = "Neither ML method"
+                    provider_ml_df.loc[
+                        provider_ml_df["isolation_forest_flag"],
+                        "ml_method_agreement",
+                    ] = "Isolation Forest only"
+                    provider_ml_df.loc[
+                        provider_ml_df["lof_flag"],
+                        "ml_method_agreement",
+                    ] = "LOF only"
+                    provider_ml_df.loc[
+                        provider_ml_df["both_ml_methods_flagged"],
+                        "ml_method_agreement",
+                    ] = "Both ML methods"
 
+                    def build_provider_review_reason(row):
+                        reasons = []
+
+                        if row["payment_status"] == "high_payment_outlier":
+                            reasons.append(
+                                "Payment above peer benchmark review range"
+                            )
+                        elif row["payment_status"] == "low_payment_outlier":
+                            reasons.append(
+                                "Payment below peer benchmark review range"
+                            )
+
+                        if row["both_ml_methods_flagged"]:
+                            reasons.append(
+                                "Both ML methods flagged this record"
+                            )
+                        elif row["either_ml_method_flagged"]:
+                            reasons.append(
+                                "One ML method flagged this record"
+                            )
+                        else:
+                            reasons.append(
+                                "Neither ML method flagged this record"
+                            )
+
+                        if pd.notna(row["reference_peers"]) and row["reference_peers"] < 50:
+                            reasons.append(
+                                "Limited peer support: fewer than 50 reference peers"
+                            )
+
+                        return "; ".join(reasons)
+
+                    provider_ml_df["ml_review_reason"] = provider_ml_df.apply(
+                        build_provider_review_reason,
+                        axis=1,
+                    )
+
+                    ml1, ml2, ml3 = st.columns(3)
                     ml1.metric(
                         "Isolation Forest flags",
-                        int(provider_ml_df["isolation_forest_flag"].sum())
+                        int(provider_ml_df["isolation_forest_flag"].sum()),
                     )
                     ml2.metric(
                         "LOF flags",
-                        int(provider_ml_df["lof_flag"].sum())
+                        int(provider_ml_df["lof_flag"].sum()),
                     )
                     ml3.metric(
-                        "IQR payment outliers",
-                        int(provider_ml_df["iqr_outlier_flag"].sum())
+                        "Both methods flagged",
+                        int(provider_ml_df["both_ml_methods_flagged"].sum()),
                     )
 
                     investigation_columns = [
@@ -859,7 +944,6 @@ if provider_npi_input:
                         "isolation_forest_flag",
                         "lof_anomaly_score",
                         "lof_flag",
-                        "iqr_outlier_flag",
                         "ml_method_agreement",
                         "ml_review_reason",
                     ]
@@ -870,45 +954,41 @@ if provider_npi_input:
                         hide_index=True,
                     )
 
-
                     st.caption(
-                        "ML results are available only for records included "
-                        "in the bounded screening sample. A missing ML result "
-                        "is not evidence of normal behavior."
+                        "This investigation queries the full scored candidate file, "
+                        "not the bounded 20,000-record screening sample. The ML "
+                        "scores cover high- and low-payment-outlier candidates only. "
+                        "Flags are screening signals for human review, not evidence "
+                        "of fraud or improper payment."
                     )
 
                     both_flagged = int(
-                        (
-                            provider_ml_df["isolation_forest_flag"]
-                            & provider_ml_df["lof_flag"]
-                        ).sum()
+                        provider_ml_df["both_ml_methods_flagged"].sum()
                     )
                     one_method_flagged = int(
                         (
-                            provider_ml_df["isolation_forest_flag"]
-                            ^ provider_ml_df["lof_flag"]
+                            provider_ml_df["either_ml_method_flagged"]
+                            & ~provider_ml_df["both_ml_methods_flagged"]
                         ).sum()
                     )
                     neither_flagged = int(
-                        (
-                            ~provider_ml_df["isolation_forest_flag"]
-                            & ~provider_ml_df["lof_flag"]
-                        ).sum()
+                        (~provider_ml_df["either_ml_method_flagged"]).sum()
                     )
 
                     st.subheader("ML Agreement Interpretation")
-
                     agree1, agree2, agree3 = st.columns(3)
                     agree1.metric("Both ML methods flagged", both_flagged)
                     agree2.metric("One ML method flagged", one_method_flagged)
                     agree3.metric("Neither ML method flagged", neither_flagged)
 
                     st.caption(
-                        "Agreement indicates that methods identified similar "
-                        "records at their configured thresholds. Neither method "
-                        "flagging a record does not establish that it is normal. "
-                        "ML flags are screening signals, not evidence of fraud."
+                        "Agreement shows whether the two models flagged the same "
+                        "candidate at their configured thresholds. A lack of ML "
+                        "flags does not establish normal behavior. Review the "
+                        "payment benchmark and provider context before drawing "
+                        "conclusions."
                     )
+
 
             else:
                 st.info(

@@ -163,6 +163,14 @@ for column, values in [
         params.extend(values)
 
 where_clause = " AND ".join(conditions)
+candidate_where_clause = (
+    where_clause
+    .replace("independent_payment_status", "b.independent_payment_status")
+    .replace("reference_peer_count", "b.reference_peer_count")
+    .replace("Rndrng_Prvdr_State_Abrvtn", "b.Rndrng_Prvdr_State_Abrvtn")
+    .replace("Rndrng_Prvdr_Type", "b.Rndrng_Prvdr_Type")
+    .replace("Place_Of_Srvc", "b.Place_Of_Srvc")
+)
 
 summary_sql = f"""
 SELECT
@@ -269,19 +277,41 @@ WITH candidates AS (
         HCPCS_Cd AS procedure_code,
         HCPCS_Desc AS procedure_description,
         Place_Of_Srvc AS place_of_service,
-        independent_payment_status AS payment_status,
+        b.independent_payment_status AS payment_status,
         ROUND(Avg_Mdcr_Pymt_Amt, 2) AS avg_medicare_payment,
-        ROUND(payment_median, 2) AS peer_median,
-        ROUND(payment_p75, 2) AS peer_p75,
-        ROUND(upper_payment_bound, 2) AS upper_review_bound,
-        ROUND(lower_payment_bound, 2) AS lower_review_bound,
-        reference_peer_count AS reference_peers
-    FROM {source}
-    WHERE {where_clause}
-      AND independent_payment_status IN (
+        ROUND(b.payment_median, 2) AS peer_median,
+        ROUND(b.payment_p75, 2) AS peer_p75,
+        ROUND(b.upper_payment_bound, 2) AS upper_review_bound,
+        ROUND(b.lower_payment_bound, 2) AS lower_review_bound,
+        b.reference_peer_count AS reference_peers,
+        m.isolation_forest_flag,
+        m.lof_flag,
+        CASE
+            WHEN m.provider_id IS NULL THEN 'ML evidence unavailable'
+            WHEN m.isolation_forest_flag IS TRUE
+                 AND m.lof_flag IS TRUE
+                THEN 'Both ML methods flagged'
+            WHEN m.isolation_forest_flag IS TRUE
+                 OR m.lof_flag IS TRUE
+                THEN 'One ML method flagged'
+            WHEN m.isolation_forest_flag IS FALSE
+                 AND m.lof_flag IS FALSE
+                THEN 'Neither ML method flagged'
+            ELSE 'ML evidence incomplete'
+    END AS ml_evidence_status
+    FROM {source} b
+    LEFT JOIN read_parquet(
+        '{(PROJECT_ROOT / "data" / "analytics" / "payment_review_ml_v1" / "payment_review_ml_scores.parquet").as_posix()}'
+    ) m
+        ON b.Rndrng_NPI = m.provider_id
+       AND b.HCPCS_Cd = m.hcpcs_code
+       AND b.Place_Of_Srvc = m.place_of_service
+    WHERE {candidate_where_clause}
+      AND b.independent_payment_status IN (
           'high_payment_outlier', 'low_payment_outlier'
       )
 ),
+
 distances AS (
     SELECT *,
         CASE
@@ -415,6 +445,9 @@ else:
             "deviation_pct_of_peer_median",
             "reference_peers",
             "peer_support",
+            "isolation_forest_flag",
+            "lof_flag",
+            "ml_evidence_status",
             "review_priority",
         ]
     ],

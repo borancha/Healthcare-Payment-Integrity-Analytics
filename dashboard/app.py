@@ -338,6 +338,47 @@ LIMIT 500
 
 worklist = con.execute(candidate_sql, params).fetchdf()
 
+def explain_payment_deviation(row):
+    status = row["payment_status"]
+    pct = row["deviation_pct_of_peer_median"]
+    distance = row["distance_outside_bound"]
+    peers = row["reference_peers"]
+
+    if status == "high_payment_outlier":
+        direction = "above"
+    elif status == "low_payment_outlier":
+        direction = "below"
+    else:
+        return "No peer-IQR payment outlier identified."
+
+    pct_text = (
+        f"{abs(pct):.1f}%"
+        if pd.notna(pct)
+        else "an unknown percentage"
+    )
+    distance_text = (
+        f"${distance:,.2f}"
+        if pd.notna(distance)
+        else "an unknown amount"
+    )
+    peer_text = (
+        f"{int(peers):,} reference peers"
+        if pd.notna(peers)
+        else "an unavailable number of reference peers"
+    )
+
+    return (
+        f"Payment is {pct_text} {direction} peer median; "
+        f"{distance_text} beyond the review bound; "
+        f"benchmark uses {peer_text}."
+    )
+
+
+worklist["deviation_explanation"] = worklist.apply(
+    explain_payment_deviation, axis=1
+)
+
+
 if not worklist.empty:
     priority_rank = {
         "Priority 1": 0,
@@ -366,6 +407,7 @@ else:
             "procedure_description",
             "payment_status",
             "review_reason",
+            "deviation_explanation",
             "avg_medicare_payment",
             "peer_median",
             "upper_review_bound",

@@ -837,11 +837,46 @@ if provider_npi_input:
                         hide_index=True,
                     )
 
+
                     st.caption(
                         "ML results are available only for records included "
                         "in the bounded screening sample. A missing ML result "
                         "is not evidence of normal behavior."
                     )
+
+                    both_flagged = int(
+                        (
+                            provider_ml_df["isolation_forest_flag"]
+                            & provider_ml_df["lof_flag"]
+                        ).sum()
+                    )
+                    one_method_flagged = int(
+                        (
+                            provider_ml_df["isolation_forest_flag"]
+                            ^ provider_ml_df["lof_flag"]
+                        ).sum()
+                    )
+                    neither_flagged = int(
+                        (
+                            ~provider_ml_df["isolation_forest_flag"]
+                            & ~provider_ml_df["lof_flag"]
+                        ).sum()
+                    )
+
+                    st.subheader("ML Agreement Interpretation")
+
+                    agree1, agree2, agree3 = st.columns(3)
+                    agree1.metric("Both ML methods flagged", both_flagged)
+                    agree2.metric("One ML method flagged", one_method_flagged)
+                    agree3.metric("Neither ML method flagged", neither_flagged)
+
+                    st.caption(
+                        "Agreement indicates that methods identified similar "
+                        "records at their configured thresholds. Neither method "
+                        "flagging a record does not establish that it is normal. "
+                        "ML flags are screening signals, not evidence of fraud."
+                    )
+
             else:
                 st.info(
                     "ML screening files are unavailable. The standard "

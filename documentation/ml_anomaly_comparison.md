@@ -290,3 +290,99 @@ python src/compare_ml_anomaly_methods.py --feature-set full --seed 42 --referenc
 python src/compare_ml_anomaly_methods.py --feature-set full --seed 42 --reference-sample-seed 123 --if-train-rows 50000 --lof-train-rows 10000 --evaluation-rows 20000 --output-dir data/analytics/ml_training_sample_seed123_v2
 ```
 Each run's summary JSON records the model seed and reference-sampling seed.
+
+---
+
+## Full Payment-Review Candidate Scoring Pipeline
+
+### Purpose
+
+This pipeline applies Isolation Forest and Local Outlier Factor (LOF) to candidates already identified by the independent peer-relative payment benchmark. Its purpose is to add unsupervised ML screening signals to the analyst worklist.
+
+Unlike the bounded experiments above, this pipeline scores all eligible high- and low-payment outlier candidates in the current evaluation dataset.
+
+**Important:** An ML flag is a screening signal, not a confirmed finding of fraud, improper payment, or recoverable savings.
+
+### Training and scoring design
+
+| Component | Configuration |
+|---|---|
+| Source | CMS Medicare Physician & Other Practitioners 2024 |
+| Provider split | Existing deterministic reference/evaluation split |
+| Isolation Forest training | 50,000 reference rows |
+| Isolation Forest trees | 150 |
+| LOF training | 10,000 reference rows |
+| LOF neighbors | 20 |
+| Contamination | 0.05 for both models |
+| Model seed | 42 |
+| Reference-sampling seed | 42 |
+| Candidate population | Eligible high- and low-payment outliers |
+| Output | Parquet scores and JSON summary |
+
+The reference sample uses a hash-based selection involving the sampling seed, provider ID, HCPCS code, and place of service. Eligible reference records must have non-null payment, allowed-amount, and beneficiary fields and a matching peer benchmark.
+
+LOF uses the first 10,000 rows from the ordered reference sample. Missing and non-finite feature values are handled using medians calculated from reference training data. Each model has its own fitted StandardScaler.
+
+### Features
+
+Both models use the same eight features:
+
+- `log_beneficiaries`
+- `log_services_per_beneficiary`
+- `log_bene_days_per_beneficiary`
+- `log_charge_to_allowed`
+- `payment_to_allowed`
+- `payment_to_peer_median`
+- `payment_iqr_distance`
+- `log_peer_count`
+
+These features represent utilization, submitted-charge-to-allowed-amount relationships, payment ratios, and peer-benchmark context. Log transformations and bounded ratios limit the influence of extreme numeric values.
+
+### Observed results
+
+Completed run in `data/analytics/payment_review_ml_v1`:
+
+| Metric | Count | Share of candidates |
+|---|---:|---:|
+| Candidates scored | 112,706 | 100.0% |
+| Isolation Forest flagged | 28,298 | 25.1% |
+| LOF flagged | 26,061 | 23.1% |
+| Both models flagged | 10,460 | 9.3% |
+| Either model flagged | 43,899 | 38.9% |
+
+Results by independent payment status:
+
+| Payment status | Candidates | Isolation Forest flagged | LOF flagged | Both flagged | Either flagged |
+|---|---:|---:|---:|---:|---:|
+| High payment outlier | 29,075 | 2,904 (9.99%) | 8,761 (30.13%) | 1,799 | 9,866 |
+| Low payment outlier | 83,631 | 25,394 (30.36%) | 17,300 (20.69%) | 8,661 | 34,033 |
+
+Percentages in the status table use each status group as the denominator. Counts describe this completed run and may change if the input data or configuration changes.
+
+### Interpreting the different flag rates
+
+Isolation Forest flags a larger share of low-payment candidates, while LOF flags a larger share of high-payment candidates in this run. These differences are not evidence that one group has a higher fraud rate.
+
+- **Candidate selection:** Models score records already classified as high or low payment outliers, not a random sample of all provider-service records.
+- **Different feature distributions:** The two groups can differ in utilization, payment ratios, and peer-benchmark context.
+- **Different algorithms:** Isolation Forest identifies observations that are relatively easy to isolate in feature space. LOF measures local density relative to neighboring training observations.
+- **Contamination is not a candidate flag-rate target:** The 0.05 setting configures the model's outlier threshold during fitting. It does not guarantee that 5% of a different, pre-filtered candidate population will be flagged.
+- **Model agreement is not ground truth:** Candidates flagged by both models have agreement between two unsupervised methods, not independently confirmed fraud labels.
+
+The available dataset does not provide confirmed fraud outcomes. These results therefore do not establish precision, recall, false-positive rate, or fraud-detection lift.
+
+### Output artifacts
+
+The default output directory is `data/analytics/payment_review_ml_v1/`.
+
+- `payment_review_ml_scores.parquet`: candidate identifiers, payment status, benchmark fields, features, individual anomaly scores and flags, and combined flags for records flagged by both or either model.
+- `payment_review_ml_summary.json`: run timestamp, input evaluation path, seeds, contamination setting, training and candidate counts, flag totals, payment-status counts, elapsed time, and scores filename.
+
+The script refuses to overwrite existing output files. Use a new output directory for a separate run.
+
+### Reproducibility
+
+Run from the repository root:
+
+```bash
+python src/score_payment_review_candidates.py --if-train-rows 50000 --lof-train-rows 10000 --contamination 0.05 --seed 42 --reference-sample-seed 42 --output-dir data/analytics/payment_review_ml_v1

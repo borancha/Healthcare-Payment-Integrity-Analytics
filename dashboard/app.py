@@ -709,6 +709,70 @@ if provider_npi_input:
                 fig.update_layout(xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
 
+            st.subheader("ML Investigation Details")
+
+            if "ml_screening" in globals():
+                provider_ml_df = ml_screening[
+                    ml_screening["provider_npi"].astype(str)
+                    == provider_npi_input
+                ].copy()
+
+                if provider_ml_df.empty:
+                    st.info(
+                        "This provider has no matching records in the "
+                        "current 20,000-record ML screening sample. "
+                        "This does not mean the provider has no anomalies."
+                    )
+                else:
+                    ml1, ml2, ml3 = st.columns(3)
+
+                    ml1.metric(
+                        "Isolation Forest flags",
+                        int(provider_ml_df["isolation_forest_flag"].sum())
+                    )
+                    ml2.metric(
+                        "LOF flags",
+                        int(provider_ml_df["lof_flag"].sum())
+                    )
+                    ml3.metric(
+                        "IQR payment outliers",
+                        int(provider_ml_df["iqr_outlier_flag"].sum())
+                    )
+
+                    investigation_columns = [
+                        "procedure_code",
+                        "procedure_description",
+                        "place_of_service",
+                        "payment_status",
+                        "avg_medicare_payment",
+                        "reference_peers",
+                        "isolation_forest_anomaly_score",
+                        "isolation_forest_flag",
+                        "lof_anomaly_score",
+                        "lof_flag",
+                        "iqr_outlier_flag",
+                        "ml_method_agreement",
+                        "ml_review_reason",
+                    ]
+
+                    st.dataframe(
+                        provider_ml_df[investigation_columns],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
+                    st.caption(
+                        "ML results are available only for records included "
+                        "in the bounded screening sample. A missing ML result "
+                        "is not evidence of normal behavior."
+                    )
+            else:
+                st.info(
+                    "ML screening files are unavailable. The standard "
+                    "provider payment review remains available."
+                )
+
+
             st.subheader("Provider payment records")
             display_df = provider_df.copy()
 

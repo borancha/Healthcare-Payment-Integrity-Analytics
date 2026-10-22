@@ -708,6 +708,40 @@ if provider_npi_input:
                 "for the provider."
             )
 
+            st.subheader("Payment Evidence Summary")
+
+            high_count = int(
+                (provider_df["payment_status"] == "high_payment_outlier").sum()
+            )
+            low_count = int(
+                (provider_df["payment_status"] == "low_payment_outlier").sum()
+            )
+            reviewed_count = high_count + low_count
+
+            st.write(
+                f"Among the {len(provider_df):,} displayed provider-procedure "
+                f"records, {reviewed_count:,} were identified as payment "
+                f"outlier candidates by the peer-IQR screening rule."
+            )
+
+            if reviewed_count:
+                st.write(
+                    f"- **High-payment candidates:** {high_count:,}\n"
+                    f"- **Low-payment candidates:** {low_count:,}"
+                )
+            else:
+                st.write(
+                    "No high- or low-payment outlier candidates were "
+                    "identified in these displayed records."
+                )
+
+            st.caption(
+                "This summary describes the displayed provider records, "
+                "which are limited to 500. Outlier candidates require "
+                "further review and are not findings of fraud or improper payment."
+            )
+
+
             st.subheader("Payment versus peer benchmarks")
 
             chart_df = provider_df.dropna(

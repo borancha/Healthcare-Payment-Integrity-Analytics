@@ -46,8 +46,15 @@ For each peer group, the benchmark stores:
 - Median average Medicare payment
 - 75th percentile of average Medicare payment
 
-The saved 2024 reference benchmark artifact contains 11,250 peer groups.
+The historical 2024 reference benchmark artifact contains 11,250 peer groups.
 Its minimum peer count is 30.
+
+**Historical artifact note:** The original benchmark-generation procedure
+could not be established from the available project history. A later,
+reproducible rebuild was created as a separate workflow and generated
+10,884 peer groups using a documented provider-level MD5 split and
+DuckDB `quantile_cont`. The rebuilt artifact does not reproduce the
+historical benchmark; the two artifacts must not be treated as interchangeable.
 
 ## 4. Scoring rule
 

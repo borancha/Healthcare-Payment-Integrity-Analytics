@@ -1343,6 +1343,165 @@ if provider_npi_input:
                 key="download_provider_investigation_evidence",
             )
 
+
+            # Build a concise analyst-facing report from the same evidence
+            # dataframe used by the CSV export.
+            report_high = int(
+                (evidence_df["payment_status"] == "high_payment_outlier").sum()
+            )
+            report_low = int(
+                (evidence_df["payment_status"] == "low_payment_outlier").sum()
+            )
+
+            if "either_ml_method_flagged" in evidence_df.columns:
+                ml_matched = int(
+                    evidence_df["either_ml_method_flagged"].notna().sum()
+                )
+                if_flags = int(
+                    evidence_df["isolation_forest_flag"]
+                    .fillna(False).astype(bool).sum()
+                )
+                lof_flags = int(
+                    evidence_df["lof_flag"]
+                    .fillna(False).astype(bool).sum()
+                )
+                both_flags = int(
+                    evidence_df["both_ml_methods_flagged"]
+                    .fillna(False).astype(bool).sum()
+                )
+                either_flags = int(
+                    evidence_df["either_ml_method_flagged"]
+                    .fillna(False).astype(bool).sum()
+                )
+            else:
+                ml_matched = if_flags = lof_flags = 0
+                both_flags = either_flags = 0
+
+            report_lines = [
+                "# Provider Investigation Report",
+                "",
+                f"- **Provider NPI:** {provider_npi_input}",
+                "- **Source:** 2024 Medicare provider/service evaluation dataset",
+                f"- **Displayed provider-procedure records:** {len(evidence_df):,}",
+                "- **Scope:** Displayed records only; the dashboard query is limited to 500 rows.",
+                "",
+                "## 1. Peer-Benchmark Review",
+                "",
+                f"- High-payment outlier candidates: **{report_high:,}**",
+                f"- Low-payment outlier candidates: **{report_low:,}**",
+                "",
+                "These counts reflect the displayed records and the peer-IQR "
+                "screening status. They are not findings of fraud or improper payment.",
+                "",
+                "## 2. Machine-Learning Screening",
+                "",
+                f"- Records with a matching ML result: **{ml_matched:,}**",
+                f"- Isolation Forest flags: **{if_flags:,}**",
+                f"- LOF flags: **{lof_flags:,}**",
+                f"- Both ML methods flagged: **{both_flags:,}**",
+                f"- Either ML method flagged: **{either_flags:,}**",
+                "",
+                "ML flags identify records for further review. A missing ML "
+                "match is not evidence that a record is normal.",
+                "",
+                "## 3. Records Requiring Attention",
+                "",
+                "| Procedure code | Procedure description | Payment status | Avg. payment | IF flag | LOF flag | ML agreement |",
+                "|---|---|---|---:|---|---|---|",
+            ]
+
+            review_mask = (
+                evidence_df["payment_status"].isin(
+                    ["high_payment_outlier", "low_payment_outlier"]
+                )
+            )
+            if "either_ml_method_flagged" in evidence_df.columns:
+                review_mask = review_mask | (
+                    evidence_df["either_ml_method_flagged"].fillna(False).astype(bool)
+                )
+
+            review_rows = evidence_df.loc[review_mask].head(20)
+
+            if review_rows.empty:
+                report_lines.append(
+                    "| No peer-IQR or ML-flagged records in the displayed rows | | | | | |"
+                )
+            else:
+                for _, row in review_rows.iterrows():
+                    def cell(value):
+                        if value is None or str(value) == "nan":
+                            return "Not available"
+                        return str(value).replace("|", "\\|").replace("\\n", " ")
+
+                    payment = row.get("avg_payment")
+                    payment_text = (
+                        f"{payment:.2f}"
+                        if payment is not None and str(payment) != "nan"
+                        else "Not available"
+                    )
+                    report_lines.append(
+                        "| "
+                        + " | ".join([
+                            cell(row.get("procedure_code")),
+                            cell(row.get("procedure_description")),
+                            cell(row.get("payment_status")),
+                            payment_text,
+                            cell(row.get("isolation_forest_flag")),
+                            cell(row.get("lof_flag")),
+                            (
+                                "Both ML methods"
+                                if bool(row.get("both_ml_methods_flagged"))
+                                else (
+                                    "One ML method"
+                                    if bool(row.get("either_ml_method_flagged"))
+                                    else (
+                                        "No ML flag"
+                                        if row.get("either_ml_method_flagged") is not None
+                                        and str(row.get("either_ml_method_flagged")) != "nan"
+                                        else "No matching ML result"
+                                    )
+                                )
+                            ),
+                        ])
+                        + " |"
+                    )
+
+            report_lines.extend([
+                "",
+                "The table is limited to the first 20 records identified by peer-IQR "
+                "status or an ML flag. Consult the accompanying CSV for all displayed "
+                "provider records and their available evidence fields.",
+                "",
+                "## 4. Analyst Follow-Up Checklist",
+                "",
+                "- [ ] Validate the provider, procedure, place of service, and payment data.",
+                "- [ ] Compare payment amounts with peer median, quartiles, and review bounds.",
+                "- [ ] Review ML scores and whether Isolation Forest and LOF agree.",
+                "- [ ] Investigate unmatched ML records and verify the reason for missing results.",
+                "- [ ] Examine coding, service mix, geography, documentation, and other relevant context.",
+                "- [ ] Document the review rationale and disposition before making conclusions.",
+                "",
+                "## 5. Limitations",
+                "",
+                "- This report summarizes the displayed records, not necessarily all activity for the provider.",
+                "- Peer-IQR and ML results are screening signals, not proof of fraud, waste, abuse, or improper payment.",
+                "- Missing ML results do not establish that a record is normal.",
+                "- Analyst validation and additional claim-level context are required before conclusions.",
+                "",
+            ])
+
+            report_markdown = "\\n".join(report_lines)
+
+            st.download_button(
+                "Download Provider Investigation Report (Markdown)",
+                data=report_markdown.encode("utf-8"),
+                file_name=(
+                    f"provider_{provider_npi_input}_investigation_report.md"
+                ),
+                mime="text/markdown",
+                key="download_provider_investigation_report",
+            )
+
             st.info(
                 "A payment outside the peer-based range is a review signal, "
                 "not proof of fraud or an improper payment. Review clinical, "

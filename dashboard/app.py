@@ -372,6 +372,26 @@ distances AS (
 ),
 prioritized AS (
     SELECT *,
+        ROUND(
+            40.0 * LEAST(
+                GREATEST(COALESCE(distance_outside_bound, 0), 0) / 25.0,
+                1.0
+            )
+            + CASE
+                WHEN reference_peers >= 200 THEN 30
+                WHEN reference_peers >= 50 THEN 20
+                WHEN reference_peers >= 30 THEN 10
+                ELSE 0
+              END
+            + CASE
+                WHEN isolation_forest_flag IS TRUE
+                     AND lof_flag IS TRUE THEN 30
+                WHEN isolation_forest_flag IS TRUE
+                     OR lof_flag IS TRUE THEN 15
+                ELSE 0
+              END,
+            1
+        ) AS review_priority_score,
         CASE
             WHEN distance_outside_bound >= 100
                  AND reference_peers >= 200
@@ -400,6 +420,7 @@ prioritized AS (
 SELECT *
 FROM prioritized
 ORDER BY
+    review_priority_score DESC NULLS LAST,
     CASE review_priority
         WHEN 'Priority 1' THEN 0
         WHEN 'Priority 2' THEN 1
@@ -468,6 +489,15 @@ if not worklist.empty:
         f"Worklist validation: {len(worklist):,} rows displayed | "
         f"Priority order valid: {ranks.is_monotonic_increasing}"
     )
+    st.caption(
+        "Composite review-priority score (0–100): payment deviation contributes "
+        "up to 40 points, reaching the maximum at $25 beyond the peer review "
+        "bound; peer-benchmark support contributes up to 30 points; and ML "
+        "corroboration contributes up to 30 points. Missing ML evidence is not "
+        "proof that a claim is normal. This heuristic supports review "
+        "prioritization; it is not a fraud probability. The existing priority "
+        "category remains separate."
+    )
 
 if worklist.empty:
     st.info("No payment review candidates match the current filters.")
@@ -493,6 +523,7 @@ else:
             "isolation_forest_flag",
             "lof_flag",
             "ml_evidence_status",
+            "review_priority_score",
             "review_priority",
         ]
     ],

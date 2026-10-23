@@ -1,10 +1,47 @@
 
 from pathlib import Path
+import json
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
 
 import duckdb
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+def generate_ollama_summary(prompt, model="qwen2.5:3b", timeout=120):
+    """Generate a local LLM response through the Ollama HTTP API."""
+    payload = json.dumps({
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+    }).encode("utf-8")
+
+    request = Request(
+        "http://localhost:11434/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        answer = result.get("response", "").strip()
+        if not answer:
+            return None, "Ollama returned an empty response."
+        return answer, None
+    except HTTPError as exc:
+        return None, f"Ollama API returned HTTP {exc.code}."
+    except (URLError, TimeoutError) as exc:
+        return None, (
+            "Could not reach Ollama or the request timed out. "
+            "Confirm Ollama is running and the model is available."
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, "Ollama returned an invalid response."
+
 
 st.set_page_config(
     page_title="Healthcare Payment Integrity Analytics",
@@ -781,6 +818,211 @@ if provider_npi_input:
                 "which are limited to 500. Outlier candidates require "
                 "further review and are not findings of fraud or improper payment."
             )
+
+            st.subheader("AI-Powered Provider Investigation")
+            st.caption(
+                "Uses the local Ollama model to explain the displayed evidence. "
+                "Generated text is advisory and must be verified by an analyst."
+            )
+
+            if st.button(
+                "Generate AI Investigation Summary",
+                key="generate_provider_ai_summary",
+            ):
+                high_rows = provider_df[
+                    provider_df["payment_status"] == "high_payment_outlier"
+                ]
+                low_rows = provider_df[
+                    provider_df["payment_status"] == "low_payment_outlier"
+                ]
+
+                evidence = {
+                    "provider_npi": provider_npi_input,
+                    "displayed_record_count": int(len(provider_df)),
+                    "displayed_records_limit": 500,
+                    "high_payment_outlier_count": high_count,
+                    "low_payment_outlier_count": low_count,
+                    "payment_status_counts": {
+                        str(key): int(value)
+                        for key, value in provider_df["payment_status"]
+                        .value_counts(dropna=False).items()
+                    },
+                    "high_payment_examples": high_rows[
+                        [
+                            "procedure_code", "place_of_service",
+                            "avg_payment", "peer_median", "peer_p25",
+                            "peer_p75", "lower_review_bound",
+                            "upper_review_bound", "reference_peers",
+                        ]
+                    ].head(10).where(pd.notna(high_rows[
+                        [
+                            "procedure_code", "place_of_service",
+                            "avg_payment", "peer_median", "peer_p25",
+                            "peer_p75", "lower_review_bound",
+                            "upper_review_bound", "reference_peers",
+                        ]
+                    ]), None).to_dict(orient="records"),
+                    "low_payment_examples": low_rows[
+                        [
+                            "procedure_code", "place_of_service",
+                            "avg_payment", "peer_median", "peer_p25",
+                            "peer_p75", "lower_review_bound",
+                            "upper_review_bound", "reference_peers",
+                        ]
+                    ].head(10).where(pd.notna(low_rows[
+                        [
+                            "procedure_code", "place_of_service",
+                            "avg_payment", "peer_median", "peer_p25",
+                            "peer_p75", "lower_review_bound",
+                            "upper_review_bound", "reference_peers",
+                        ]
+                    ]), None).to_dict(orient="records"),
+                }
+
+                if PAYMENT_REVIEW_ML_FILE.exists():
+                    ml_path = (
+                        PAYMENT_REVIEW_ML_FILE.as_posix().replace("'", "''")
+                    )
+                    ml_summary_sql = f"""
+                    SELECT
+                        COUNT(*) AS candidate_records,
+                        COUNT(*) FILTER (
+                            WHERE isolation_forest_flag
+                        ) AS isolation_forest_flag_count,
+                        COUNT(*) FILTER (
+                            WHERE lof_flag
+                        ) AS lof_flag_count,
+                        COUNT(*) FILTER (
+                            WHERE both_ml_methods_flagged
+                        ) AS both_methods_flagged_count,
+                        COUNT(*) FILTER (
+                            WHERE either_ml_method_flagged
+                        ) AS either_method_flagged_count
+                    FROM read_parquet('{ml_path}')
+                    WHERE provider_id = ?
+                    """
+                    ml_summary = con.execute(
+                        ml_summary_sql, [int(provider_npi_input)]
+                    ).fetchdf().iloc[0]
+
+                    evidence["ml_candidate_records"] = int(
+                        ml_summary["candidate_records"]
+                    )
+                    evidence["isolation_forest_flag_count"] = int(
+                        ml_summary["isolation_forest_flag_count"]
+                    )
+                    evidence["lof_flag_count"] = int(
+                        ml_summary["lof_flag_count"]
+                    )
+                    evidence["both_ml_methods_flagged_count"] = int(
+                        ml_summary["both_methods_flagged_count"]
+                    )
+                    evidence["either_ml_method_flagged_count"] = int(
+                        ml_summary["either_method_flagged_count"]
+                    )
+                else:
+                    evidence["ml_evidence"] = (
+                        "The ML scoring file is unavailable."
+                    )
+
+                st.markdown("**Verified source metrics**")
+                metric_cols = st.columns(4)
+                metric_cols[0].metric(
+                    "Displayed records", evidence["displayed_record_count"]
+                )
+                metric_cols[1].metric(
+                    "High-payment candidates",
+                    evidence["high_payment_outlier_count"],
+                )
+                metric_cols[2].metric(
+                    "Low-payment candidates",
+                    evidence["low_payment_outlier_count"],
+                )
+
+                if "ml_candidate_records" in evidence:
+                    metric_cols[3].metric(
+                        "ML candidate records", evidence["ml_candidate_records"]
+                    )
+                    st.caption(
+                        "ML flags are counted in the separate ML-scored candidate "
+                        "file; they are not interchangeable with peer-IQR outliers."
+                    )
+                    ml_cols = st.columns(4)
+                    ml_cols[0].metric(
+                        "Isolation Forest flags",
+                        evidence["isolation_forest_flag_count"],
+                    )
+                    ml_cols[1].metric(
+                        "LOF flags", evidence["lof_flag_count"]
+                    )
+                    ml_cols[2].metric(
+                        "Flagged by both",
+                        evidence["both_ml_methods_flagged_count"],
+                    )
+                    ml_cols[3].metric(
+                        "Flagged by either",
+                        evidence["either_ml_method_flagged_count"],
+                    )
+                else:
+                    metric_cols[3].metric("ML candidate records", "Unavailable")
+                    st.warning(evidence.get(
+                        "ml_evidence", "ML evidence is unavailable."
+                    ))
+
+                prompt = (
+                    "You are explaining healthcare payment analytics to an analyst. "
+                    "Provide a brief, qualitative explanation of the difference "
+                    "between peer-IQR screening and machine-learning screening. "
+                    "You may describe only the general meaning of these methods. "
+                    "Do not report or repeat any counts, percentages, NPIs, procedure "
+                    "codes, or financial amounts. Do not make provider-specific "
+                    "claims, interpret individual records, invent examples, or "
+                    "attribute anomalies to coding, documentation, medical necessity, "
+                    "or any other cause. Do not claim that any signal proves fraud, "
+                    "abuse, improper payment, intent, or recoverable savings. Explain "
+                    "that screening signals require independent validation. Keep the "
+                    "response to two or three sentences. Evidence context for this "
+                    "explanation: " + json.dumps(evidence, default=str)
+                )
+
+                st.markdown("**Qualitative AI explanation**")
+                with st.spinner(
+                    "Generating a local AI explanation with qwen2.5:3b..."
+                ):
+                    ai_answer, ai_error = generate_ollama_summary(prompt)
+
+                if ai_error:
+                    st.warning(
+                        "The local AI explanation is unavailable. "
+                        "The verified metrics and analyst checks below remain available."
+                    )
+                else:
+                    st.markdown(ai_answer)
+
+                st.caption(
+                    "AI-generated method explanation only. Verify any interpretation "
+                    "before using it in an analytical decision."
+                )
+
+                st.markdown("**Suggested analyst follow-up**")
+                st.markdown(
+                    "1. **Review peer-relative payment evidence:** Compare each "
+                    "flagged record's average payment with its peer median and "
+                    "upper review bound. Treat the bound as a screening threshold, "
+                    "not an approved payment limit.\n"
+                    "2. **Check peer comparability:** Verify that procedure code "
+                    "and place of service are appropriate for the peer comparison, "
+                    "and note the reference peer count when interpreting results.\n"
+                    "3. **Compare screening signals carefully:** Where a reliable "
+                    "provider-and-procedure match is available, compare peer-IQR "
+                    "results with the corresponding ML flags. Keep the methods' "
+                    "populations and outputs distinct."
+                )
+
+                st.caption(
+                    "Follow-up checks are predefined from available analytical fields; "
+                    "screening results are not findings of wrongdoing."
+                )
 
 
             st.subheader("Payment versus peer benchmarks")

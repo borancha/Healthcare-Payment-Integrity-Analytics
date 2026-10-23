@@ -1262,6 +1262,87 @@ if provider_npi_input:
                 mime="text/csv"
             )
 
+
+            st.subheader("Provider Investigation Evidence Export")
+            st.caption(
+                "Combines the displayed provider records and peer benchmarks "
+                "with matching ML screening results. The export is limited "
+                "to the displayed provider records (maximum 500)."
+            )
+
+            ml_evidence_columns = [
+                "isolation_forest_anomaly_score",
+                "isolation_forest_flag",
+                "lof_anomaly_score",
+                "lof_flag",
+                "both_ml_methods_flagged",
+                "either_ml_method_flagged",
+            ]
+
+            evidence_df = display_df.copy()
+
+            if PAYMENT_REVIEW_ML_FILE.exists():
+                ml_path = (
+                    PAYMENT_REVIEW_ML_FILE.as_posix().replace("'", "''")
+                )
+
+                ml_con = duckdb.connect()
+                try:
+                    ml_evidence_df = ml_con.execute(
+                        f"""
+                        SELECT
+                            provider_id AS provider_npi,
+                            hcpcs_code AS procedure_code,
+                            place_of_service,
+                            independent_payment_status AS payment_status,
+                            isolation_forest_anomaly_score,
+                            isolation_forest_flag,
+                            lof_anomaly_score,
+                            lof_flag,
+                            both_ml_methods_flagged,
+                            either_ml_method_flagged
+                        FROM read_parquet('{ml_path}')
+                        WHERE provider_id = ?
+                        """,
+                        [int(provider_npi_input)],
+                    ).fetchdf()
+                finally:
+                    ml_con.close()
+
+                evidence_df = evidence_df.merge(
+                    ml_evidence_df,
+                    on=[
+                        "provider_npi",
+                        "procedure_code",
+                        "place_of_service",
+                        "payment_status",
+                    ],
+                    how="left",
+                    validate="many_to_one",
+                )
+            else:
+                for column in ml_evidence_columns:
+                    evidence_df[column] = None
+
+            evidence_df["evidence_scope"] = (
+                "Displayed provider records only; maximum 500 records"
+            )
+            evidence_df["review_limitation"] = (
+                "Peer-IQR outliers and ML anomaly flags are screening signals, "
+                "not proof of fraud, waste, abuse, or improper payment. "
+                "Missing ML values do not establish that a record is normal."
+            )
+
+            st.download_button(
+                "Download provider investigation evidence as CSV",
+                data=evidence_df.to_csv(index=False).encode("utf-8"),
+                file_name=(
+                    f"provider_{provider_npi_input}_investigation_evidence.csv"
+                ),
+                mime="text/csv",
+                key="download_provider_investigation_evidence",
+            )
+
             st.info(
                 "A payment outside the peer-based range is a review signal, "
                 "not proof of fraud or an improper payment. Review clinical, "

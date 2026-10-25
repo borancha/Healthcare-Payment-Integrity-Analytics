@@ -62,12 +62,35 @@ Make sure Python and pip are installed, then run:
 python -m pip install -r requirements.txt
 ```
 
-### 3. Prepare the local data
+### ### 3. Prepare the local data and analytics artifacts
 
-The raw CMS dataset, processed datasets, and generated analytics files are excluded from this repository because of their size. Download the 2024 data from the official [CMS dataset page](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners).
+The CMS source data and generated analytics artifacts are excluded from Git because of their size. Download the 2024 Medicare Physician & Other Practitioners dataset from the official [CMS dataset page](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners) and prepare the processed CSV at:
 
-The dashboard depends on locally generated evaluation and benchmark files. Downloading the raw dataset alone may not be sufficient; the required files must be prepared in the expected locations before launching the dashboard.
+`data/processed/cms_medicare_provider_service_2024.csv`
 
+From the repository root, build the reference benchmarks and held-out evaluation dataset:
+
+```bash
+python src/build_reference_benchmarks.py
+python src/create_evaluation_dataset.py
+python src/score_provider_payments.py --input data/analytics/rebuild_v1/evaluation_input_2024.parquet --benchmarks data/analytics/rebuild_v1/reference_payment_benchmarks_2024.parquet --output data/analytics/rebuild_v1/evaluation_scored_2024.parquet
+python src/summarize_evaluation.py
+```
+
+Next, generate the ML screening evidence used by the dashboard:
+
+```bash
+python src/score_payment_review_candidates.py
+```
+
+These commands create local Parquet and JSON artifacts under `data/analytics/rebuild_v1/` and `data/analytics/payment_review_ml_v1/`. The scripts protect existing output files; if an output already exists, inspect it before choosing a new output directory or path.
+
+**Before launching the dashboard, confirm that these files exist:**
+
+- `data/analytics/rebuild_v1/evaluation_scored_2024.parquet`
+- `data/analytics/payment_review_ml_v1/payment_review_ml_scores.parquet`
+
+The dashboard also offers LLM-generated explanations through a local Ollama service using `qwen2.5:3b`. This feature requires Ollama to be installed and running, with that model available. The core dashboard and ML scoring pipeline do not use Ollama to generate their scores.
 ### 4. Launch the dashboard
 
 From the project root, run:

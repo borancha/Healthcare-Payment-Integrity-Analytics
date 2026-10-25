@@ -162,6 +162,36 @@ The pipeline writes its rebuild artifacts to `data/analytics/rebuild_v1/`. Gener
 The rebuilt benchmark pipeline is a distinct evaluation workflow. Its results should not be interpreted as an exact reconstruction of the original benchmark artifact.
 
 
+## Machine Learning Anomaly Detection and Stability Analysis
+
+The project compares unsupervised anomaly detection methods to help prioritize provider-service records for analytical review. The experiments evaluate model overlap, feature sensitivity, random-seed stability, and training-sample stability.
+
+### Method Comparison
+
+On a matched evaluation sample of 20,000 records:
+
+| Method | Flagged records | Flag rate |
+|---|---:|---:|
+| Isolation Forest | 1,532 | 7.66% |
+| Local Outlier Factor (LOF) | 1,501 | 7.51% |
+| Peer-relative IQR baseline | 929 | 4.65% |
+
+Isolation Forest and LOF agreed on 796 flagged records, with a Jaccard similarity of 35.58%. The methods identify partially different records; these differences do not establish which method is more accurate.
+
+### Stability and Feature Sensitivity
+
+- **Random-seed stability:** Isolation Forest flags changed for 237 of 20,000 records between seeds 42 and 123 (1.185%). LOF flags were unchanged when its training data and configuration were held fixed.
+- **Training-sample stability:** Cross-sample Jaccard similarity was 88.07% for Isolation Forest and 65.42% for LOF.
+- **Feature ablation:** A matched-record experiment examined the effect of excluding peer-payment features, demonstrating why feature selection and flag stability should be evaluated rather than assumed.
+
+### Payment-Review Candidate Scoring
+
+In a separate completed run, the ML pipeline scored 112,706 records already selected as high- or low-payment outlier candidates. Isolation Forest flagged 28,298 records (25.1%), LOF flagged 26,061 (23.1%), and at least one model flagged 43,899 (38.9%). These rates apply to the preselected candidate population, not all provider-service records.
+
+**Important:** The CMS dataset does not provide confirmed fraud labels. These models generate screening signals for human review; the results do not establish fraud, improper payment, model precision or recall, or recoverable savings.
+
+For experimental configuration, feature definitions, ablation results, stability analyses, validation, and reproducibility instructions, see [ML Anomaly Detection Method Comparison](documentation/ml_anomaly_comparison.md).
+
 ## Dashboard Preview
 
 The interactive dashboard helps reviewers explore provider payment patterns, filter potential outliers, inspect provider-level details, and export review worklists.

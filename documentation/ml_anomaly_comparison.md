@@ -261,6 +261,7 @@ Record-level comparison on 20,000 matched evaluation records:
 | Stability metric | Isolation Forest | LOF |
 |---|---:|---:|
 | Flags that changed | 198 (0.99%) | 664 (3.32%) |
+| Cross-seed Jaccard similarity | 88.07% | 65.42% |
 | Anomaly-score correlation | 0.989780 | 0.999916 |
 
 For Isolation Forest, 101 records were flagged only with sampling seed 42 and 97 only with sampling seed 123.

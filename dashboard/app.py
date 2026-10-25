@@ -421,17 +421,16 @@ SELECT *
 FROM prioritized
 ORDER BY
     review_priority_score DESC NULLS LAST,
+    distance_outside_bound DESC NULLS LAST,
     CASE review_priority
         WHEN 'Priority 1' THEN 0
         WHEN 'Priority 2' THEN 1
         WHEN 'Standard' THEN 2
         WHEN 'Review benchmark support' THEN 3
         ELSE 4
-    END,
-    distance_outside_bound DESC NULLS LAST
+    END
 LIMIT 500
 """
-
 worklist = con.execute(candidate_sql, params).fetchdf()
 
 def explain_payment_deviation(row):

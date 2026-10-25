@@ -429,7 +429,7 @@ ORDER BY
         WHEN 'Review benchmark support' THEN 3
         ELSE 4
     END
-LIMIT 500
+LIMIT 2000
 """
 worklist = con.execute(candidate_sql, params).fetchdf()
 
@@ -475,18 +475,14 @@ worklist["deviation_explanation"] = worklist.apply(
 
 
 if not worklist.empty:
-    priority_rank = {
-        "Priority 1": 0,
-        "Priority 2": 1,
-        "Standard": 2,
-        "Review benchmark support": 3
-    }
-
-    ranks = worklist["review_priority"].map(priority_rank)
+    score_order_valid = (
+        worklist["review_priority_score"]
+        .is_monotonic_decreasing
+    )
 
     st.caption(
         f"Worklist validation: {len(worklist):,} rows displayed | "
-        f"Priority order valid: {ranks.is_monotonic_increasing}"
+        f"Score order valid: {score_order_valid}"
     )
     st.caption(
         "Composite review-priority score (0–100): payment deviation contributes "

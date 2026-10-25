@@ -98,12 +98,12 @@ From the project root, run:
 python -m streamlit run dashboard/app.py
 ```
 
-### 5. Run the unit tests
+### 5. Run the automated tests
 
 From the project root, run:
 
 ```bash
-python -m unittest tests.test_score_provider_payments -v
+python -m pytest -v
 ```
 **Note:** The GitHub repository contains the code and documentation, not the large local datasets or generated analytics artifacts. The dashboard may not launch successfully until those files have been prepared.
 ## Interpretation and Limitations

@@ -61,8 +61,7 @@ Make sure Python and pip are installed, then run:
 ```bash
 python -m pip install -r requirements.txt
 ```
-
-### ### 3. Prepare the local data and analytics artifacts
+### 3. Prepare the local data and analytics artifacts
 
 The CMS source data and generated analytics artifacts are excluded from Git because of their size. Download the 2024 Medicare Physician & Other Practitioners dataset from the official [CMS dataset page](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners) and prepare the processed CSV at:
 
@@ -91,6 +90,7 @@ These commands create local Parquet and JSON artifacts under `data/analytics/reb
 - `data/analytics/payment_review_ml_v1/payment_review_ml_scores.parquet`
 
 The dashboard also offers LLM-generated explanations through a local Ollama service using `qwen2.5:3b`. This feature requires Ollama to be installed and running, with that model available. The core dashboard and ML scoring pipeline do not use Ollama to generate their scores.
+
 ### 4. Launch the dashboard
 
 From the project root, run:

@@ -76,21 +76,20 @@ python src/score_provider_payments.py --input data/analytics/rebuild_v1/evaluati
 python src/summarize_evaluation.py
 ```
 
-Next, generate the ML screening evidence used by the dashboard:
+Generate the machine-learning screening evidence used by the dashboard:
 
 ```bash
 python src/score_payment_review_candidates.py
 ```
 
-These commands create local Parquet and JSON artifacts under `data/analytics/rebuild_v1/` and `data/analytics/payment_review_ml_v1/`. The scripts protect existing output files; if an output already exists, inspect it before choosing a new output directory or path.
+These commands create local Parquet and JSON artifacts under `data/analytics/rebuild_v1/` and `data/analytics/payment_review_ml_v1/`. The scripts protect existing output files. If an output already exists, inspect it before choosing a new output directory or path.
 
 **Before launching the dashboard, confirm that these files exist:**
 
 - `data/analytics/rebuild_v1/evaluation_scored_2024.parquet`
 - `data/analytics/payment_review_ml_v1/payment_review_ml_scores.parquet`
 
-The dashboard also offers LLM-generated explanations through a local Ollama service using `qwen2.5:3b`. This feature requires Ollama to be installed and running, with that model available. The core dashboard and ML scoring pipeline do not use Ollama to generate their scores.
-
+The dashboard supports optional LLM-generated explanations through a local Ollama service using the `qwen2.5:3b` model. This feature requires Ollama to be installed and running, with the model available. Ollama is not required to generate the core benchmark or machine-learning scores.
 ### 4. Launch the dashboard
 
 From the project root, run:
@@ -106,7 +105,6 @@ From the project root, run:
 ```bash
 python -m unittest tests.test_score_provider_payments -v
 ```
-
 **Note:** The GitHub repository contains the code and documentation, not the large local datasets or generated analytics artifacts. The dashboard may not launch successfully until those files have been prepared.
 ## Interpretation and Limitations
 

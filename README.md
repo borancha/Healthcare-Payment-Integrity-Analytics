@@ -67,6 +67,8 @@ The CMS source data and generated analytics artifacts are excluded from Git beca
 
 `data/processed/cms_medicare_provider_service_2024.csv`
 
+**Data preparation prerequisite:** Prepare the processed CSV separately from the official CMS download; this repository does not currently include an automated raw-to-processed conversion script. The benchmark builder validates required columns before processing. Python 3.12.15 was used for local validation.
+
 From the repository root, build the reference benchmarks and held-out evaluation dataset:
 
 ```bash

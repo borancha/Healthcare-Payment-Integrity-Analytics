@@ -54,13 +54,28 @@ git clone https://github.com/borancha/healthcare-payment-integrity-analytics.git
 cd healthcare-payment-integrity-analytics
 ```
 
-### 2. Install dependencies
+### 2. Set up Python and install dependencies
 
-Make sure Python and pip are installed, then run:
+Python 3.12.15 was used for local validation. From the repository root, create and activate a virtual environment.
+
+**Windows (Git Bash):**
 
 ```bash
+python -m venv .venv
+source .venv/Scripts/activate
 python -m pip install -r requirements.txt
 ```
+
+**macOS/Linux:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+The `.venv/` directory is excluded from Git.
+
 ### 3. Prepare the local data and analytics artifacts
 
 The CMS source data and generated analytics artifacts are excluded from Git because of their size. Download the 2024 Medicare Physician & Other Practitioners dataset from the official [CMS dataset page](https://data.cms.gov/provider-summary-by-type-of-service/medicare-physician-other-practitioners) and prepare the processed CSV at:

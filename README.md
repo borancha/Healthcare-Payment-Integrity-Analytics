@@ -106,6 +106,7 @@ These commands create local Parquet and JSON artifacts under `data/analytics/reb
 - `data/analytics/rebuild_v1/evaluation_scored_2024.parquet`
 - `data/analytics/payment_review_ml_v1/payment_review_ml_scores.parquet`
 
+The exploratory ML anomaly-screening section uses additional artifacts under data/analytics/ml_training_sample_seed42_v2/ and data/analytics/provider_payment_anomaly_scores_2024_v2.parquet. If these artifacts are unavailable, that section displays a warning; the core payment-review workflow still requires payment_review_ml_v1/payment_review_ml_scores.parquet
 The dashboard supports optional LLM-generated explanations through a local Ollama service using the `qwen2.5:3b` model. This feature requires Ollama to be installed and running, with the model available. Ollama is not required to generate the core benchmark or machine-learning scores.
 ### 4. Launch the dashboard
 
